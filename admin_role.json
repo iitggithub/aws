@@ -1,0 +1,233 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "Creates an IAM User with full administration privileges.",
+	"Resources": {
+		"LambdaExecutionRole": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"AssumeRolePolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [{
+						"Effect": "Allow",
+						"Principal": {
+							"Service": ["lambda.amazonaws.com"]
+						},
+						"Action": ["sts:AssumeRole"]
+					}]
+				},
+				"Path": "/",
+				"Policies": [{
+					"PolicyName": "root",
+					"PolicyDocument": {
+						"Version": "2012-10-17",
+						"Statement": [{
+							"Effect": "Allow",
+							"Action": [
+								"logs:CreateLogGroup",
+								"logs:CreateLogStream",
+								"logs:PutLogEvents",
+								"ec2:CreateNetworkInterface",
+								"ec2:DescribeNetworkInterfaces",
+								"ec2:DeleteNetworkInterface"
+							],
+							"Resource": "*"
+						}]
+					}
+				}]
+			}
+		},
+		"LambdaGenerateRandomString": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"Timeout": 30,
+				"Handler": "index.handler",
+				"Runtime": "python2.7",
+				"MemorySize": 128,
+				"FunctionName": "generateRandomString",
+				"Role": {
+					"Fn::GetAtt": ["LambdaExecutionRole", "Arn"]
+				},
+				"Code": {
+					"ZipFile": {
+						"Fn::Join": [
+							"\n",
+							[
+								"import json",
+								"import random",
+								"import string",
+								"import urllib2",
+								"import logging",
+								"",
+								"logger = logging.getLogger()",
+								"logger.setLevel(logging.DEBUG)",
+								"",
+								"def handler(event, context):",
+								"\ttry:",
+								"\t\teval(main(event, context))",
+								"\texcept Exception as e:",
+								"",
+								"\t\trequest_body = {",
+								"\t\t\t\t\t\t\"Status\": \"FAILED\",",
+								"\t\t\t\t\t\t\"PhysicalResourceId\" : context.log_stream_name,",
+								"\t\t\t\t\t\t\"StackId\" : event[\"StackId\"],",
+								"\t\t\t\t\t\t\"RequestId\" : event[\"RequestId\"],",
+								"\t\t\t\t\t\t\"LogicalResourceId\" : event[\"LogicalResourceId\"],",
+								"\t\t\t\t\t\t\"Data\" : {",
+								"\t\t\t\t\t\t\t\t\"DBPassword\": \"Null\"",
+								"\t\t\t\t\t\t}",
+								"\t\t}",
+								"",
+								"\t\tlogger.error(request_body)",
+								"\t\tlogger.error( \"An error occured: {}\".format(e) )",
+								"",
+								"\t\trequest_body = json.dumps(request_body)",
+								"",
+								"\t\trequest = urllib2.Request(event['ResponseURL'], data=request_body, headers={'Content-Length': len(request_body), 'Content-Type': ''})",
+								"\t\trequest.get_method = lambda: 'PUT'",
+								"",
+								"\t\turllib2.urlopen(request)",
+								"",
+								"\t\treturn request_body",
+								"",
+								"def main(event, context):",
+								"\tpassword = \"\"",
+								"\tpasswordLength = 20",
+								"",
+								"\tif event[\"RequestType\"] == \"Delete\":",
+								"\t\trequest_body = {",
+								"\t\t\t\t\t\t\"Status\": \"SUCCESS\",",
+								"\t\t\t\t\t\t\"Reason\": \"Deleted\",",
+								"\t\t\t\t\t\t\"PhysicalResourceId\" : context.log_stream_name,",
+								"\t\t\t\t\t\t\"StackId\" : event[\"StackId\"],",
+								"\t\t\t\t\t\t\"RequestId\" : event[\"RequestId\"],",
+								"\t\t\t\t\t\t\"LogicalResourceId\" : event[\"LogicalResourceId\"],",
+								"\t\t\t\t\t\t\"Data\" : {",
+								"\t\t\t\t\t\t\t\"Password\": \"NULL\"",
+								"\t\t\t\t\t\t}",
+								"\t\t}",
+								"",
+								"\t\trequest_body = json.dumps(request_body)",
+								"",
+								"\t\trequest = urllib2.Request(event['ResponseURL'], data=request_body, headers={'Content-Length': len(request_body), 'Content-Type': ''})",
+								"\t\trequest.get_method = lambda: 'PUT'",
+								"",
+								"\t\turllib2.urlopen(request)",
+								"\t\tlogger.debug(\"Delete request to CFN API succeeded, nothing to do here\")",
+								"",
+								"\t\treturn request_body",
+								"",
+								"\tif event['ResourceProperties']['PasswordLength']:",
+								"\t\tlogger.debug(\"Setting password length to '\" + event['ResourceProperties']['PasswordLength'] + \"' characters.\")",
+								"\t\tpasswordLength = event['ResourceProperties']['PasswordLength']",
+								"",
+								"\tc = string.ascii_letters + string.digits + string.punctuation",
+								"\ts = c.replace('@','').replace('/','').replace('\\\\','').replace('\"','').replace(\"'\",\"\").replace('`','').replace('$','').replace('!','')",
+								"",
+								"\tpassword = ''.join(random.choice(s) for i in range(int(passwordLength)))",
+								"",
+								"\trequest_body = {",
+								"\t\t\t\t\t\"Status\": \"SUCCESS\",",
+								"\t\t\t\t\t\"PhysicalResourceId\" : context.log_stream_name,",
+								"\t\t\t\t\t\"StackId\" : event[\"StackId\"],",
+								"\t\t\t\t\t\"RequestId\" : event[\"RequestId\"],",
+								"\t\t\t\t\t\"LogicalResourceId\" : event[\"LogicalResourceId\"],",
+								"\t\t\t\t\t\"Data\" : {",
+								"\t\t\t\t\t\t\"Password\": password",
+								"\t\t\t\t\t}",
+								"\t}",
+								"",
+								"\trequest_body = json.dumps(request_body)",
+								"",
+								"\trequest = urllib2.Request(event['ResponseURL'], data=request_body, headers={'Content-Length': len(request_body), 'Content-Type': ''})",
+								"\trequest.get_method = lambda: 'PUT'",
+								"",
+								"\turllib2.urlopen(request)",
+								"\tlogger.debug(\"Request to CFN API succeeded, nothing to do here\")",
+								"",
+								"\treturn request_body"
+							]
+						]
+					}
+				}
+			},
+			"DependsOn": ["LambdaExecutionRole"]
+		},
+		"AdminPassword": {
+			"Type": "Custom::AdminPassword",
+			"Properties": {
+				"ServiceToken": {
+					"Fn::GetAtt": ["LambdaGenerateRandomString", "Arn"]
+				},
+				"PasswordLength": 20
+			}
+		},
+		"AWSEmergencyAdminUser": {
+			"Type": "AWS::IAM::User",
+			"Properties": {
+				"Path": "/",
+				"LoginProfile": {
+					"Password": {
+						"Fn::GetAtt": ["AdminPassword", "Password"]
+					}
+				},
+				"Policies": [{
+					"PolicyName": "AWSEmergencyAdminAccessPolicy",
+					"PolicyDocument": {
+						"Version": "2012-10-17",
+						"Statement": [{
+							"Effect": "Allow",
+							"Action": ["*"],
+							"Resource": "*"
+						}]
+					}
+				}]
+			}
+		},
+		"AWSEmergencyAdminUserAccessKey": {
+			"Type": "AWS::IAM::AccessKey",
+			"Properties": {
+				"UserName": {
+					"Ref": "AWSEmergencyAdminUser"
+				}
+			}
+		}
+
+	},
+	"Outputs": {
+		"LambdaPasswordARN": {
+			"Value": {
+				"Fn::GetAtt": ["LambdaGenerateRandomString", "Arn"]
+			},
+			"Description": "The ARN of the Lambda function which generates a random password",
+			"Export": {
+				"Name": {
+					"Fn::Sub": "${AWS::StackName}-LambdaPasswordARN"
+				}
+			}
+		},
+		"AdminUserName": {
+			"Value": {
+				"Ref": "AWSEmergencyAdminUser"
+			},
+			"Description": "IAM User with full Administrative Access."
+		},
+		"AdminPassword": {
+			"Value": {
+				"Fn::GetAtt": ["AdminPassword", "Password"]
+			},
+			"Description": "User database password"
+		},
+		"AdminUserAccessKey": {
+			"Value": {
+				"Ref": "AWSEmergencyAdminUserAccessKey"
+			},
+			"Description": "Admin User Access Key"
+		},
+		"AdminUserSecretKey": {
+			"Value": {
+				"Fn::GetAtt": ["AWSEmergencyAdminUserAccessKey", "SecretAccessKey"]
+			},
+			"Description": "Admin User Secret Key"
+		}
+	}
+}
