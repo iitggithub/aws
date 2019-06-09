@@ -14,7 +14,7 @@
         },
         "SSHKey": {
             “Default”: “# No SSH public key specified…”,
-            "Description": "The SSH public key to be added to the /home/bitnami/authorized_keys file.",
+            "Description": "The SSH public key to be added to the /home/aws-admin/authorized_keys file.",
             "Type": "String"
         },
         "KeyName": {
