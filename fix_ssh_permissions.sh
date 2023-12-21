@@ -14,7 +14,7 @@ while [ -z "${instance}" ]
   read instance
 done
 
-if [[ "$instance" =~ ^i- ]]
+if [[ "$instance" =~ ^i-.* ]]
   then
   echo "Invalid EC2 Instance ID specified!"
   echo "Instance ID must be in the form of i-xxxxxxxxxxxxxxxxx"
