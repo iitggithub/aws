@@ -14,12 +14,34 @@ while [ -z "${instance}" ]
   read instance
 done
 
+if [[ "$instance" =~ ^i- ]]
+  then
+  echo "Invalid EC2 Instance ID specified!"
+  echo "Instance ID must be in the form of i-xxxxxxxxxxxxxxxxx"
+  exit 1
+fi
+
 echo -n "Enter the AWS region where the instance is located (Default: '$AWS_REGION'): "
 read region
 
 if [ -z "${region}" ]
   then
   region="$AWS_REGION"
+fi
+
+validRegion="0"
+for aws_region in `aws ec2 describe-regions --query Regions[*].[RegionName] --output text`
+  do
+  if [ "${region}" == "${aws_region}" ]
+    then
+    validRegion="1"
+  fi
+done
+
+if [ ${validRegion} == 0 ]
+  then
+  echo "The region '${region}' is not a valid AWS region."
+  exit 1
 fi
 
 echo "WARNING! By executing this script, you will stop your instance!"
