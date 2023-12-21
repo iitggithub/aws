@@ -73,22 +73,59 @@ EOF
 
 echo
 echo "Finished generating user data..."
-echo "base64 encoding user data..."; base64 userdata.txt >userdata_encoded.txt
-echo "Waiting for instance to enter the stopped state..."; aws ec2 stop-instances --instance-ids $instance --region $region && until [ "`aws ec2 describe-instance-status --instance-ids $instance --include-all-instances --query 'InstanceStatuses[*].InstanceState.Name' --region $region --output text 2>/dev/null`" == "stopped" ]; do sleep 5; done
-echo "Backing up any existing user data to userdata_original.txt..."; aws ec2 describe-instance-attribute --instance-id $instance --attribute userData --query "UserData.Value" --region $region --output text >userdata_original.txt
-echo "Inserting recover user data..."; aws ec2 modify-instance-attribute --instance-id $instance --attribute userData --value file://userdata_encoded.txt --region $region
-echo "Starting instance $instance..."; aws ec2 start-instances --instance-ids $instance --region $region
-echo "Waiting for instance to enter the running state..."; until [ "`aws ec2 describe-instance-status --instance-ids $instance --include-all-instances --query 'InstanceStatuses[*].InstanceState.Name' --region $region --output text 2>/dev/null`" == "running" ]; do sleep 5; done
+
+echo "base64 encoding user data..."
+base64 userdata.txt >userdata_encoded.txt
+
+echo "Waiting for instance to enter the stopped state..."
+aws ec2 stop-instances --instance-ids $instance --region $region && until [ "`aws ec2 describe-instance-status --instance-ids $instance --include-all-instances --query 'InstanceStatuses[*].InstanceState.Name' --region $region --output text 2>/dev/null`" == "stopped" ]; do echo -n "."; sleep 5; done
 echo
-echo "Instance is now in the running state. Please check SSH access now. Press any key to stop the instance and rollback the user data changes or press CTRL + C to exit here.."
-read INPUT
 
-echo "Waiting for instance to enter the stopped state..."; aws ec2 stop-instances --instance-ids $instance --region $region && until [ "`aws ec2 describe-instance-status --instance-ids $instance --include-all-instances --query 'InstanceStatuses[*].InstanceState.Name' --region $region --output text 2>/dev/null`" == "stopped" ]; do sleep 5; done
-echo "Removing recovery user data..."; aws ec2 modify-instance-attribute --instance-id $instance --region $region --user-data Value=
+echo "Backing up any existing user data to userdata_original.txt..."
+aws ec2 describe-instance-attribute --instance-id $instance --attribute userData --query "UserData.Value" --region $region --output text >userdata_original.txt
 
-test -s userdata_original.txt && echo "inserting old user data..." && aws ec2 modify-instance-attribute --instance-id $instance --attribute userData --value file://userdata_original.txt --region $region
+echo "Inserting recover user data..."
+aws ec2 modify-instance-attribute --instance-id $instance --attribute userData --value file://userdata_encoded.txt --region $region
 
-echo "Starting instance $instance..."; aws ec2 start-instances --instance-ids $instance --region $region
-echo "Waiting for instance to enter the running state..." && until [ "`aws ec2 describe-instance-status --instance-ids $instance --include-all-instances --query 'InstanceStatuses[*].InstanceState.Name' --region $region --output text 2>/dev/null`" == "running" ]; do sleep 5; done
+echo "Starting instance $instance..."
+aws ec2 start-instances --instance-ids $instance --region $region
+
+echo "Waiting for instance to enter the running state..."
+until [ "`aws ec2 describe-instance-status --instance-ids $instance --include-all-instances --query 'InstanceStatuses[*].InstanceState.Name' --region $region --output text 2>/dev/null`" == "running" ]; do echo -n "."; sleep 5; done
 echo
-echo "Instance is now in the running state once again. Script execution complete."
+
+echo
+echo "Instance is now in the running state. Please check SSH access now."
+
+while [ true ]
+  do
+  echo
+  echo -n "Should I remove the user data changes now? y/n: "
+  read INPUT
+
+  if [[ "$INPUT" =~ ^([yY]|[nN])$ ]]
+    then
+    if [[ "$INPUT" =~ ^([yY])$ ]]
+      then
+      echo "Waiting for instance to enter the stopped state..."
+      aws ec2 stop-instances --instance-ids $instance --region $region && until [ "`aws ec2 describe-instance-status --instance-ids $instance --include-all-instances --query 'InstanceStatuses[*].InstanceState.Name' --region $region --output text 2>/dev/null`" == "stopped" ]; do echo -n "."; sleep 5; done
+      echo
+
+      echo "Removing recovery user data..."; aws ec2 modify-instance-attribute --instance-id $instance --region $region --user-data Value=
+
+      test -s userdata_original.txt && echo "inserting old user data..." && aws ec2 modify-instance-attribute --instance-id $instance --attribute userData --value file://userdata_original.txt --region $region
+
+      echo "Starting instance $instance..."
+      aws ec2 start-instances --instance-ids $instance --region $region
+
+      echo "Waiting for instance to enter the running state..." && until [ "`aws ec2 describe-instance-status --instance-ids $instance --include-all-instances --query 'InstanceStatuses[*].InstanceState.Name' --region $region --output text 2>/dev/null`" == "running" ]; do echo -n "."; sleep 5; done
+      echo
+
+      echo
+      echo "Instance is now in the running state once again."
+      break
+    fi
+  fi
+done
+
+echo "Script execution complete."
