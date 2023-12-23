@@ -79,17 +79,18 @@ Content-Transfer-Encoding: 7bit
 Content-Disposition: attachment; filename="userdata.txt"
 
 #!/bin/bash
+test -f /var/log/secure && cat /var/log/secure | grep -i ssh | tail -100
+test -f /var/log/auth.log && cat /var/log/auth.log | grep -i ssh | tail -100
 cat /etc/ssh/sshd_config
-cat /var/log/secure | grep -i ssh | tail -50
 ls -ld /etc/ssh /home /home/$ec2user /home/$ec2user/.ssh
 ls -l /etc/ssh /home/$ec2user/.ssh
 journalctl -n 100 --no-pager -r -u sshd
-chmod 755 /etc/ssh
-chmod 644 /etc/ssh/*
-chmod 600 /etc/ssh/ssh_host_*_key /home/$ec2user/.ssh/authorized_keys
-chmod 700 /home/ec2-user/.ssh
-chown -R root:root /etc/ssh
-chown -R $ec2user:$ec2user /home/$ec2user/.ssh
+chmod -c 755 /etc/ssh
+chmod -c 644 /etc/ssh/*
+chmod -c 600 /etc/ssh/ssh_host_*_key /home/$ec2user/.ssh/authorized_keys
+chmod -c 700 /home/ec2-user/.ssh
+chown -c -R root:root /etc/ssh
+chown -c -R $ec2user:$ec2user /home/$ec2user/.ssh
 --//
 EOF
 
