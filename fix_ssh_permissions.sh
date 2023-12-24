@@ -58,6 +58,8 @@ echo
 echo "Press any key to when ready to begin..."
 read response
 
+echo "Generating recovery user data..."
+echo
 cat <<EOF | tee userdata.txt
 Content-Type: multipart/mixed; boundary="//"
 MIME-Version: 1.0
@@ -95,9 +97,9 @@ chown -c -R $ec2user:$ec2user /home/$ec2user/.ssh
 EOF
 
 echo
-echo "Finished generating user data..."
+echo "Finished generating recovery user data..."
 
-echo "base64 encoding user data..."
+echo "base64 encoding recovery user data..."
 base64 userdata.txt >userdata_encoded.txt
 
 echo "Waiting for instance to enter the stopped state..."
@@ -107,7 +109,7 @@ echo
 echo "Backing up any existing user data to userdata_original.txt..."
 aws ec2 describe-instance-attribute --instance-id $instance --attribute userData --query "UserData.Value" --region $region --output text >userdata_original.txt
 
-echo "Inserting recover user data..."
+echo "Inserting recovery user data..."
 aws ec2 modify-instance-attribute --instance-id $instance --attribute userData --value file://userdata_encoded.txt --region $region
 
 echo "Starting instance $instance..."
@@ -137,6 +139,8 @@ while [ true ]
       echo "Removing recovery user data..."; aws ec2 modify-instance-attribute --instance-id $instance --region $region --user-data Value=
 
       test -s userdata_original.txt && echo "inserting old user data..." && aws ec2 modify-instance-attribute --instance-id $instance --attribute userData --value file://userdata_original.txt --region $region
+      
+      echo "Removing temporary files..."; rm -f userdata_original.txt; rm -f userdata.txt; rm -f userdata_encoded.txt
 
       echo "Starting instance $instance..."
       aws ec2 start-instances --instance-ids $instance --region $region
