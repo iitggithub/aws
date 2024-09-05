@@ -1,0 +1,741 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "Adds Image Builder Distribution tags to all shared AMI's in their respective AWS accounts.",
+	"Outputs": {
+		"SNSTopicARN": {
+			"Value": 
+                {
+                    "Ref": "SNSTopic"
+                },
+			"Description": "The ARN of the SNS Topic which you need to select in your EC2 Image Builder Infrastructure Configuration."
+		}
+	},
+	"Parameters": {
+        "VpcId": {
+            "Type": "String",
+            "Description": "OPTIONAL - Specifies the ID of an existing VPC in which the Lambda function will be connected to. If you specify a VPC ID, you must specify a list of existing subnets in that VPC. If you do not specify a VPC ID, a new VPC is created with at least 1 subnet.",
+            "Default": "",
+            "ConstraintDescription": "VPC Id must begin with 'vpc-' or leave blank to have a new VPC created"
+        },
+        "SubnetIds": {
+            "Type": "CommaDelimitedList",
+            "Description": "OPTIONAL - Specifies the Comma separated list of existing VPC Subnet Ids to associate the function with. Must be private Subnet Ids.",
+            "Default": ""
+        },
+        "SecurityGroupId": {
+            "Type": "String",
+            "Description": "OPTIONAL - Specifies the Security Group Id of an existing security group to associate with the Lambda function. Leave blank to have a new Security Group created instead.",
+            "Default": ""
+        },
+        "VpcAvailabilityZones": {
+            "Type": "List<AWS::EC2::AvailabilityZone::Name>",
+            "Description": "Specifies 2 VPC Availability Zones for the creation of new subnets. These zones must have the available status.",
+            "Default": ""
+        },
+        "VpcCidr": {
+            "Type": "String",
+            "Description": "Specifies the CIDR Block of the VPC.",
+            "Default": "10.0.0.0/24",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+        },
+        "SubnetCidr1": {
+            "Type": "String",
+            "Description": "Specifies the CIDR Block of Subnet 1. This subnet is used to give the NAT Gateway in Subnet 1 internet access.",
+            "Default": "10.0.0.0/26",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+        },
+        "SubnetCidr2": {
+            "Type": "String",
+            "Description": "Specifies the CIDR Block of Subnet 2. This subnet is used to give the NAT Gateway in Subnet 2 internet access.",
+            "Default": "10.0.0.64/26",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+        },
+        "SubnetCidr3": {
+            "Type": "String",
+            "Description": "Specifies the CIDR Block of Subnet 3. The Lambda function will be deployed in this subnet.",
+            "Default": "10.0.0.128/26",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+        },
+        "SubnetCidr4": {
+            "Type": "String",
+            "Description": "Specifies the CIDR Block of Subnet 4. The Lambda function will be deployed in this subnet.",
+            "Default": "10.0.0.192/26",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+        },
+        "SNSTopicName": {
+            "Type": "String",
+            "Description": "Specifies the name of the SNS Topic to subscribe the Lambda function to. Leave blank and an SNS Topic will be created for you to use.",
+            "Default": "EC2ImageBuilderPipelineCompletionStatus"
+        }
+	},
+	"Conditions": {
+		"CreateNewSecurityGroup": {
+            "Fn::Equals": [
+                {
+                    "Ref": "SecurityGroupId"
+                },
+                ""
+            ]
+        },
+        "CreateNewVpc": {
+            "Fn::Equals": [
+                {
+                    "Ref": "VpcId"
+                },
+                ""
+            ]
+        },
+        "CreateSubnet1": {
+            "Fn::And": [
+                {
+                    "Fn::Not": [
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "SubnetCidr1"
+                                },
+                                ""
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "Condition": "CreateNewVpc"
+                }
+            ]
+        },
+        "CreateSubnet2": {
+            "Fn::And": [
+                {
+                    "Fn::Not": [
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "SubnetCidr2"
+                                },
+                                ""
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "Condition": "CreateSubnet1"
+                }
+            ]
+        },
+        "CreateSubnet3": {
+            "Fn::And": [
+                {
+                    "Fn::Not": [
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "SubnetCidr3"
+                                },
+                                ""
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "Condition": "CreateSubnet2"
+                }
+            ]
+        },
+        "CreateSubnet4": {
+            "Fn::And": [
+                {
+                    "Fn::Not": [
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "SubnetCidr4"
+                                },
+                                ""
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "Condition": "CreateSubnet3"
+                }
+            ]
+        }
+	},
+	"Resources": {
+		"CustomVPC": {
+            "Condition": "CreateSubnet1",
+            "Type": "AWS::EC2::VPC",
+            "Properties": {
+                "CidrBlock": {
+                    "Ref": "VpcCidr"
+                },
+                "EnableDnsSupport": true,
+                "EnableDnsHostnames": true
+            }
+        },
+        "PubSubnetAz1": {
+            "Condition": "CreateSubnet1",
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "CustomVPC"
+                },
+                "CidrBlock": {
+                    "Ref": "SubnetCidr1"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Ref": "VpcAvailabilityZones"
+                        }
+                    ]
+                },
+                "MapPublicIpOnLaunch": true
+            }
+        },
+        "PubSubnetAz2": {
+            "Condition": "CreateSubnet2",
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "CustomVPC"
+                },
+                "CidrBlock": {
+                    "Ref": "SubnetCidr2"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        1,
+                        {
+                            "Ref": "VpcAvailabilityZones"
+                        }
+                    ]
+                },
+                "MapPublicIpOnLaunch": true
+            }
+        },
+        "PrvSubnetAz1": {
+            "Condition": "CreateSubnet3",
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "CustomVPC"
+                },
+                "CidrBlock": {
+                    "Ref": "SubnetCidr3"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Ref": "VpcAvailabilityZones"
+                        }
+                    ]
+                },
+                "MapPublicIpOnLaunch": false
+            }
+        },
+        "PrvSubnetAz2": {
+            "Condition": "CreateSubnet4",
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "CustomVPC"
+                },
+                "CidrBlock": {
+                    "Ref": "SubnetCidr4"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        1,
+                        {
+                            "Ref": "VpcAvailabilityZones"
+                        }
+                    ]
+                },
+                "MapPublicIpOnLaunch": false
+            }
+        },
+        "NatGwElasticIP1": {
+        	"Condition": "CreateSubnet1",
+  			"Type" : "AWS::EC2::EIP"
+		},
+		"NatGwElasticIP2": {
+        	"Condition": "CreateSubnet2",
+  			"Type" : "AWS::EC2::EIP"
+		},
+        "NatGateway1": {
+            "Condition": "CreateSubnet1",
+            "Type": "AWS::EC2::NatGateway",
+            "Properties": {
+            	"AllocationId": {
+              		"Fn::GetAtt": ["NatGwElasticIP1", "AllocationId"]
+            	},
+            	"SubnetId": {
+                    "Ref": "PubSubnetAz1"
+                }
+            }
+        },
+        "NatGateway2": {
+            "Condition": "CreateSubnet2",
+            "Type": "AWS::EC2::NatGateway",
+            "Properties": {
+            	"AllocationId": {
+              		"Fn::GetAtt": ["NatGwElasticIP2", "AllocationId"]
+            	},
+            	"SubnetId": {
+                    "Ref": "PubSubnetAz2"
+                }
+            }
+        },
+        "InternetGateway1": {
+            "Condition": "CreateSubnet1",
+            "Type": "AWS::EC2::InternetGateway"
+        },
+        "AttachGateway1": {
+            "Condition": "CreateSubnet1",
+            "Type": "AWS::EC2::VPCGatewayAttachment",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "CustomVPC"
+                },
+                "InternetGatewayId": {
+                    "Ref": "InternetGateway1"
+                }
+            }
+        },
+        "Subnet1RouteTable": {
+            "Condition": "CreateSubnet1",
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "CustomVPC"
+                }
+            }
+        },
+        "Subnet2RouteTable": {
+            "Condition": "CreateSubnet2",
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "CustomVPC"
+                }
+            }
+        },
+        "Subnet3RouteTable": {
+            "Condition": "CreateSubnet3",
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "CustomVPC"
+                }
+            }
+        },
+        "Subnet4RouteTable": {
+            "Condition": "CreateSubnet4",
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "CustomVPC"
+                }
+            }
+        },
+        "PublicRouteSubnet1ViaIGW1": {
+            "Condition": "CreateSubnet1",
+            "Type": "AWS::EC2::Route",
+            "DependsOn": "AttachGateway1",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "Subnet1RouteTable"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "InternetGateway1"
+                }
+            }
+        },
+        "PublicRouteSubnet2ViaIGW1": {
+            "Condition": "CreateSubnet2",
+            "Type": "AWS::EC2::Route",
+            "DependsOn": "AttachGateway1",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "Subnet2RouteTable"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "InternetGateway1"
+                }
+            }
+        },
+        "PublicRouteSubnet3ViaNATGW1": {
+            "Condition": "CreateSubnet3",
+            "Type": "AWS::EC2::Route",
+            "DependsOn": "NatGateway1",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "Subnet3RouteTable"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "NatGatewayId": {
+                    "Ref": "NatGateway1"
+                }
+            }
+        },
+        "PublicRouteSubnet4ViaNATGW2": {
+            "Condition": "CreateSubnet4",
+            "Type": "AWS::EC2::Route",
+            "DependsOn": "NatGateway2",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "Subnet4RouteTable"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "NatGatewayId": {
+                    "Ref": "NatGateway2"
+                }
+            }
+        },
+        "PubSubnet1RouteTableAssociation": {
+            "Condition": "CreateSubnet1",
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "PubSubnetAz1"
+                },
+                "RouteTableId": {
+                    "Ref": "Subnet1RouteTable"
+                }
+            }
+        },
+        "PubSubnet2RouteTableAssociation": {
+            "Condition": "CreateSubnet2",
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "PubSubnetAz2"
+                },
+                "RouteTableId": {
+                    "Ref": "Subnet2RouteTable"
+                }
+            }
+        },
+        "PrvSubnet3RouteTableAssociation": {
+            "Condition": "CreateSubnet3",
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "PrvSubnetAz1"
+                },
+                "RouteTableId": {
+                    "Ref": "Subnet3RouteTable"
+                }
+            }
+        },
+        "PrvSubnet4RouteTableAssociation": {
+            "Condition": "CreateSubnet4",
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "PrvSubnetAz2"
+                },
+                "RouteTableId": {
+                    "Ref": "Subnet4RouteTable"
+                }
+            }
+        },
+        "LambdaSecurityGroup": {
+            "Condition": "CreateNewSecurityGroup",
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Lambda Security group does not require any inbound access but does need outbound access to TCP port 443",
+                "VpcId": {
+                    "Fn::If": [
+                        "CreateSubnet1",
+                        {
+                            "Ref": "CustomVPC"
+                        },
+                        {
+                            "Ref": "VpcId"
+                        }
+                    ]
+                },
+                "SecurityGroupEgress": [{
+                    "IpProtocol": "tcp",
+                    "FromPort": "443",
+                    "ToPort": "443",
+                    "CidrIp": "0.0.0.0/0"
+                }]
+            }
+        },
+		"SNSTopic": {
+  			"Type" : "AWS::SNS::Topic",
+  			"DependsOn": "LambdaFunction",
+  			"Properties" : {
+  				"TopicName" : 
+                    {
+                        "Ref": "SNSTopicName"
+                    },
+  				"DisplayName" : "Image Builder",
+      			"Subscription" : [
+      				{
+            			"Endpoint": 
+                        {
+              				"Fn::GetAtt": [
+                                "LambdaFunction",
+                                "Arn"
+                            ]
+            			},
+            			"Protocol": "lambda"
+          			}
+      			]
+    		}
+		},
+		"AMISharingIAMPolicy": {
+			"Type": "AWS::IAM::Policy",
+			"DependsOn": "LambdaExecutionRole",
+			"Properties": {
+				"PolicyName": "EC2ImageBuilderDistributionCrossAccountAMISharing",
+				"Roles": [
+					{
+						"Ref": "LambdaExecutionRole"
+					}
+				],
+				"PolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [
+						{
+							"Effect": "Allow",
+							"Action": "sts:AssumeRole",
+							"Resource": "arn:aws:iam::*:role/EC2ImageBuilderDistributionCrossAccountRole"
+						},
+						{
+							"Effect": "Allow",
+							"Action": [
+								"organizations:ListAccounts"
+							],
+							"Resource": "*"
+						}
+					]
+				}
+			}
+		},
+		"LambdaExecutionRole": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"Description": "Role used by Lambda to add Image Builder Distribution tags to all shared AMI's in their respective AWS accounts",
+				"RoleName": "EC2ImageBuilderLambdaExecutionRole",
+				"AssumeRolePolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [{
+						"Effect": "Allow",
+						"Principal": {"Service": ["lambda.amazonaws.com"]},
+						"Action": ["sts:AssumeRole"]
+					}]
+				},
+				"Path": "/",
+				"ManagedPolicyArns": [
+				                      "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+				                      "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
+				                      "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+				]
+			}
+		},
+        "LambdaSNSPermission": {
+            "Type" : "AWS::Lambda::Permission",
+            "Properties" : {
+                "Action" : "lambda:InvokeFunction",
+                "FunctionName" : {
+                    "Fn::GetAtt": [
+                        "LambdaFunction",
+                        "Arn"
+                    ]
+                },
+                "Principal" : "sns.amazonaws.com"
+            }
+        },
+		"LambdaFunction": {
+			"Type": "AWS::Lambda::Function",
+			"Properties": {
+				"Timeout": 900,
+				"Description": "Adds Image Builder Distribution tags to all shared AMI's in their respective AWS accounts.",
+				"Handler": "index.handler",
+				"Runtime": "python3.11",
+				"MemorySize": 128,
+				"FunctionName": "ImageBuilderAddOutputAMITags2SharedAMIs",
+				"Role": {"Fn::GetAtt":["LambdaExecutionRole","Arn"]},
+				"VpcConfig": {
+					"SecurityGroupIds" : [
+                    	{
+                        	"Fn::If": [
+                            	"CreateNewSecurityGroup",
+                            	{
+                                    "Fn::GetAtt":[
+                                        "LambdaSecurityGroup","GroupId"
+                                    ]
+                                },
+                            	{
+                                	"Ref": "SecurityGroupId"
+                            	}
+                        	]
+                    	}
+                	],
+					"SubnetIds" : [
+						{
+							"Fn::If": [
+								"CreateSubnet3",
+								{
+                                    "Ref": "PrvSubnetAz1"
+                                },
+								{
+                                    "Fn::Join": [
+                                        ",",
+                                        {
+                                            "Ref": "SubnetIds"
+                                        }
+                                    ]
+                                }
+                    		]
+						},
+						{
+							"Fn::If": [
+								"CreateSubnet4",
+								{
+                                    "Ref": "PrvSubnetAz2"
+                                },
+								""
+                    		]
+						}
+                	]
+				},
+				"Code": {
+					"ZipFile": {
+						"Fn::Join": [
+							"\n",
+							[
+								"import json",
+								"import boto3",
+								"import logging",
+								"# Lambda execution role permissions required",
+								"# AWSLambdaBasicExecutionRole IAM Policy",
+								"# AWSLambdaVPCAccessExecutionRole IAM Policy",
+								"# AWSXRayDaemonWriteAccess IAM Policy",
+								"# AWSOrganizationsReadOnlyAccess IAM Policy (Better off creating a custom policy for organizations:ListAccounts instead)",
+								"#",
+								"# IAM Permission Required",
+								"# sts:AssumeRole # Required for each account",
+								"# ec2:DescribeImages # Only required in the target account",
+								"# ec2:CreateTags # Only required in the target account",
+								"",
+								"def handler(event, context):",
+								"\tlogger = logging.getLogger()",
+								"\tlogger.setLevel(logging.INFO)",
+								"",
+								"\tfor record in event['Records']:",
+								"\t\tevent_message = record['Sns']['Message']",
+								"",
+								"\t\t# convert the event message to json",
+								"\t\tmessage_json = json.loads(event_message)",
+								"",
+								"\t\t# obtain the image state",
+								"\t\timage_state = message_json['state']['status']",
+								"",
+								"\t\t# start the tagging process once the image is available",
+								"\t\tif image_state == 'AVAILABLE':",
+								"\t\t\tami_distribution_configuration = message_json['distributionConfiguration']['distributions'][0]['amiDistributionConfiguration']",
+								"\t\t\tlaunch_permissions = ami_distribution_configuration['launchPermission']",
+								"\t\t\tlogger.info('Launch Permissions list {}'.format(launch_permissions))",
+								"",
+								"\t\t\t# The list of Output AMI Tags to be added to the shared AMI",
+								"\t\t\tami_tags = ami_distribution_configuration['amiTags']",
+								"",
+								"\t\t\t# Holds a list of AWS acccount IDs that the AMI will be shared with",
+								"\t\t\taccount_list = []",
+								"",
+								"\t\t\tsts_client = boto3.client('sts')",
+								"",		
+								"\t\t\t# Add AWS accounts from the organization to the account list",
+								"\t\t\tif 'organizationArns' in launch_permissions:",
+								"\t\t\t\torg_client = boto3.client('organizations',region_name='us-east-1')",
+								"\t\t\t\tresponse = org_client.list_accounts()",
+								"\t\t\t\torg_account_list = response['Accounts']",
+								"\t\t\t\tfor account in response['Accounts']:",
+								"\t\t\t\t\tif account['Id'] not in account_list:",
+								"\t\t\t\t\t\tlogger.info('Apeending organization account {} to account_list'.format(account['Id']))",
+								"\t\t\t\t\t\taccount_list.append(account['Id'])",
+								"",
+								"\t\t\t\twhile 'NextToken' in response:",
+								"\t\t\t\t\tresponse = org_client.list_accounts(NextToken=response['NextToken'])",
+								"\t\t\t\t\tfor account in response['Accounts']:",
+								"\t\t\t\t\t\tif account['Id'] not in account_list:",
+								"\t\t\t\t\t\t\tlogger.info('Apeending organization account {} to account_list'.format(account['Id']))",
+								"\t\t\t\t\t\t\taccount_list.append(account['Id'])",
+								"",
+								"\t\t\t# Add AWS accounts that were explicitly shared to the account list",
+								"\t\t\tif 'userIds' in launch_permissions:",
+								"\t\t\t\tfor account in launch_permissions['userIds']:",
+								"\t\t\t\t\tif account not in account_list:",
+								"\t\t\t\t\t\tlogger.info('Apeending user account {} to account_list'.format(account))",
+								"\t\t\t\t\t\taccount_list.append(account)",
+								"",
+								"\t\t\tlogger.info('Account List: {}'.format(account_list))",
+								"\t\t\tcompleted_accounts_list = []",
+								"\t\t\tfor account in account_list:",
+								"\t\t\t\tlogger.info('Checking account {}'.format(account))",
+								"\t\t\t\t# Skip the call account since it will already have",
+								"\t\t\t\t# the output tags applied to its AMI",
+								"\t\t\t\tif account == sts_client.get_caller_identity()['Account']:",
+								"\t\t\t\t\tcontinue",
+								"",
+								"\t\t\t\t# Iterate over AMI's if there are more than 1",
+								"\t\t\t\tfor ami in message_json['outputResources']['amis']:",
+								"\t\t\t\t\t# obtain ami id",
+								"\t\t\t\t\tami_id = ami['image'] # AMI ID eg ami-01298e9c2a1d3b804",
+								"\t\t\t\t\tregion_name = ami['region'] # AMI Region eg us-east-1",
+								"\t\t\t\t\tlogger.info('AMI ID: {}'.format(ami_id))",
+								"\t\t\t\t\tlogger.info('AMI Region: {}'.format(region_name))",
+								"",
+								"\t\t\t\t\t# Assume the EC2ImageBuilderDistributionCrossAccountRole in the org account",
+								"\t\t\t\t\tassumed_role = sts_client.assume_role(",
+								"\t\t\t\t\t\tRoleArn='arn:aws:iam::' + str(account) + ':role/EC2ImageBuilderDistributionCrossAccountRole',",
+								"\t\t\t\t\t\tRoleSessionName='EC2ImageBuilderDistributionCrossAccountRole'",
+								"\t\t\t\t\t)",
+								"",
+								"\t\t\t\t\tlogger.info('Assumed Role: {}'.format(assumed_role))",
+								"\t\t\t\t\tACCESS_KEY = assumed_role['Credentials']['AccessKeyId']",
+								"\t\t\t\t\tSECRET_KEY = assumed_role['Credentials']['SecretAccessKey']",
+								"\t\t\t\t\tSESSION_TOKEN = assumed_role['Credentials']['SessionToken']",
+								"",
+								"\t\t\t\t\t# create an ec2 service client using the assumed role credentials",
+								"\t\t\t\t\tec2_client = boto3.client(",
+								"\t\t\t\t\t\t'ec2',",
+								"\t\t\t\t\t\taws_access_key_id=ACCESS_KEY,",
+								"\t\t\t\t\t\taws_secret_access_key=SECRET_KEY,",
+								"\t\t\t\t\t\taws_session_token=SESSION_TOKEN,",
+								"\t\t\t\t\t\tregion_name=region_name",
+								"\t\t\t\t\t)",
+								"",
+								"\t\t\t\t\tresponse = ec2_client.describe_images(ImageIds=[ami_id])",
+								"",
+								"\t\t\t\t\tif 'Tags' not in response['Images'][0]:",
+								"\t\t\t\t\t\tfor key in ami_tags:",
+								"\t\t\t\t\t\t\tlogger.info('Adding AMI Tag key \"{}\" with value \"{}\" to AMI {}'.format(key,ami_tags[key],ami_id))",
+								"\t\t\t\t\t\t\ttag_response = ec2_client.create_tags(",
+								"\t\t\t\t\t\t\t\tResources=[ami_id],",
+								"\t\t\t\t\t\t\t\tTags=[{'Key': key, 'Value': ami_tags[key]}]",
+								"\t\t\t\t\t\t\t)",
+								"\t\t\t\t\t\t\tlogger.info('Tag Response: {}'.format(tag_response))",
+								"",
+								"\t\t\t\t# Keep track of AWS accounts we've already completed",
+								"\t\t\t\tcompleted_accounts_list.append(account)",
+								"\treturn"
+							]
+						]
+					}
+				}
+			}
+		}
+	}
+}
